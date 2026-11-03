@@ -35,7 +35,12 @@ defaults write -app Skim SKReloadOverlayDuration -float 0.5   # how long the pic
 defaults write -app Skim SKReloadOverlayFade -float 0.08      # crossfade to PDFKit's drawing
 ```
 
-The patch is in `SKMainWindowController.m` (`showReloadOverlay`, `pictureOfVisiblePages`).
+The patch is in `src/SKMainWindowController.m` (`showReloadOverlay`, `pictureOfVisiblePages`).
+
+## Layout
+
+- `src/`: Skim's sources and Xcode project (`src/Skim.xcodeproj`), as upstream has them.
+- `Scripts/release.sh`: the release build.
 
 ## Other differences from upstream
 

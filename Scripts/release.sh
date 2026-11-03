@@ -3,6 +3,8 @@
 # Builds a release of this Skim fork for distribution: built, signed with a Developer ID,
 # notarized, stapled, and zipped, with a Sparkle appcast to go beside it.
 #
+# The Xcode project and all of Skim's sources are in src/.
+#
 # Leaves exactly two files in $DIST, Skim.zip and appcast.xml, ready to attach to a GitHub release
 # tagged with the marketing version (the app's update feed is releases/latest/download/appcast.xml).
 # It does not create that release or tag anything.
@@ -20,6 +22,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SRC="$ROOT/src"
 DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:-SNC2X5N2CY}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-notary}"
 SPARKLE_ACCOUNT="${SPARKLE_ACCOUNT:-Skim (amichaelyu fork)}"
@@ -34,7 +37,7 @@ WORK="$DERIVED/release-work"
 APP="$DIST/Skim.app"
 ZIP="$DIST/Skim.zip"
 
-setting() { sed -n "s/^$1 = //p" "$ROOT/Configurations/Skim-Common.xcconfig"; }
+setting() { sed -n "s/^$1 = //p" "$SRC/Configurations/Skim-Common.xcconfig"; }
 VERSION="$(setting MARKETING_VERSION)"
 BUILD="$(setting CURRENT_PROJECT_VERSION)"
 [ -n "$VERSION" ] && [ -n "$BUILD" ] || { echo "error: no version in Skim-Common.xcconfig" >&2; exit 1; }
@@ -64,7 +67,7 @@ run_logged() {
 echo "==> Building"
 # Built unsigned, then signed inside out by codesign_skim.sh as upstream does. Xcode 27 builds
 # nothing older than macOS 12, and the bundled subprojects still say 10.13, hence the override.
-run_logged build xcodebuild -project "$ROOT/Skim.xcodeproj" -target Skim -configuration Release \
+run_logged build xcodebuild -project "$SRC/Skim.xcodeproj" -target Skim -configuration Release \
     SYMROOT="$SYMROOT" MACOSX_DEPLOYMENT_TARGET=12.0 \
     CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM= CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
     build
@@ -78,7 +81,7 @@ if [ "$BUILT_VERSION" != "$VERSION" ] || [ "$BUILT_BUILD" != "$BUILD" ]; then
 fi
 
 echo "==> Signing"
-run_logged codesign "$ROOT/codesign_skim.sh" "$IDENTITY" "$APP"
+run_logged codesign "$SRC/codesign_skim.sh" "$IDENTITY" "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
 TEAM_SIGNED="$(codesign -dv "$APP" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
 if [ "$TEAM_SIGNED" != "$DEVELOPMENT_TEAM" ]; then
