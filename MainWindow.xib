@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="19529" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES">
+    <dependencies>
+        <deployment identifier="macosx"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="19529"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <objects>
+        <customObject id="-2" userLabel="File's Owner" customClass="SKMainWindowController">
+            <connections>
+                <outlet property="statusBar" destination="2Zw-iS-Qai" id="5oD-6z-7iD"/>
+                <outlet property="window" destination="5" id="18"/>
+            </connections>
+        </customObject>
+        <customObject id="-1" userLabel="First Responder" customClass="FirstResponder"/>
+        <customObject id="-3" userLabel="Application" customClass="NSObject"/>
+        <window allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" restorable="NO" releasedWhenClosed="NO" visibleAtLaunch="NO" animationBehavior="default" id="5" userLabel="Window" customClass="SKMainWindow">
+            <windowStyleMask key="styleMask" titled="YES" closable="YES" miniaturizable="YES" resizable="YES" fullSizeContentView="YES"/>
+            <windowCollectionBehavior key="collectionBehavior" fullScreenPrimary="YES"/>
+            <windowPositionMask key="initialPositionMask" leftStrut="YES" rightStrut="YES" topStrut="YES" bottomStrut="YES"/>
+            <rect key="contentRect" x="91" y="260" width="1000" height="600"/>
+            <rect key="screenRect" x="0.0" y="0.0" width="1280" height="775"/>
+            <value key="minSize" type="size" width="250" height="130"/>
+            <view key="contentView" id="6">
+                <rect key="frame" x="0.0" y="0.0" width="1000" height="600"/>
+                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                <subviews>
+                    <customView translatesAutoresizingMaskIntoConstraints="NO" id="2Zw-iS-Qai" customClass="SKStatusBar">
+                        <rect key="frame" x="0.0" y="0.0" width="1000" height="22"/>
+                        <constraints>
+                            <constraint firstAttribute="height" constant="22" id="fGI-iF-w0D"/>
+                        </constraints>
+                        <connections>
+                            <outlet property="bottomConstraint" destination="Lpk-GO-C0x" id="cUb-TH-u1a"/>
+                        </connections>
+                    </customView>
+                </subviews>
+                <constraints>
+                    <constraint firstAttribute="bottom" secondItem="2Zw-iS-Qai" secondAttribute="bottom" id="Lpk-GO-C0x"/>
+                    <constraint firstAttribute="trailing" secondItem="2Zw-iS-Qai" secondAttribute="trailing" id="Rpa-Nl-KNp"/>
+                    <constraint firstItem="2Zw-iS-Qai" firstAttribute="leading" secondItem="6" secondAttribute="leading" id="vlN-aY-PV4"/>
+                </constraints>
+            </view>
+            <contentBorderThickness minY="22"/>
+            <connections>
+                <outlet property="delegate" destination="-2" id="43"/>
+            </connections>
+            <point key="canvasLocation" x="139" y="147"/>
+        </window>
+    </objects>
+</document>
