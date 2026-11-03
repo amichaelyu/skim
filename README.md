@@ -14,12 +14,3 @@ releases instead of the upstream feed.
 
 - `src/`: Skim's sources and Xcode project (`src/Skim.xcodeproj`), as upstream has them.
 - `Scripts/release.sh`: the release build.
-
-## Other differences from upstream
-
-- Minimum macOS 12 (Xcode 27 builds nothing older).
-- Version `1.7.17.1`, update feed `releases/latest/download/appcast.xml` with this fork's EdDSA key.
-- `Scripts/release.sh` builds, signs with a Developer ID, notarizes, staples, zips and writes the
-  appcast.
-
-Skim is BSD licensed; see `LICENSE`.
