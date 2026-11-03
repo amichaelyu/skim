@@ -219,7 +219,27 @@ static NSArray *mergedSnapshotSetups(NSArray *setups1, NSArray *setups2);
 
 - (void)documentDidUnlockDelayed;
 
+// Covers the PDF view with a picture of itself while a reverted document is swapped in.
+@property (nonatomic, nullable, strong) NSView *reloadOverlayView;
+- (nullable id)pictureOfVisiblePages;
+- (void)showReloadOverlay;
+- (void)scheduleHideReloadOverlay;
+
 @end
+
+// A view that only shows a picture and lets every event through to the view below.
+@interface SKReloadOverlayView : NSView
+@end
+
+@implementation SKReloadOverlayView
+- (NSView *)hitTest:(NSPoint)point { return nil; }
+- (BOOL)isOpaque { return NO; }
+@end
+
+// Seconds the picture of the old pages stays up after a reload, while PDFKit draws the new ones.
+static NSString *SKReloadOverlayDurationKey = @"SKReloadOverlayDuration";
+// Seconds of the crossfade from the old picture to the new pages.
+static NSString *SKReloadOverlayFadeKey = @"SKReloadOverlayFade";
 
 #pragma mark -
 
@@ -1177,6 +1197,10 @@ static NSArray *mergedSnapshotSetups(NSArray *setups1, NSArray *setups2);
     
     if (oldPdfDoc) {
         // this is a revert
+        // keep showing the old pages until the new ones are drawn, instead of a blank view
+        if ([self interactionMode] != SKPresentationMode)
+            [self showReloadOverlay];
+        
         // need to clean up data and actions, and remember settings to restore
         if (pageCount) {
             dest = [pdfView currentSKDestination:YES];
@@ -1324,6 +1348,124 @@ static NSArray *mergedSnapshotSetups(NSArray *setups1, NSArray *setups2);
     
     // make sure we clear the undo handling
     undoGroupOldPropertiesPerNote = nil;
+    
+    if ([self reloadOverlayView]) {
+        // show the new pages right away, drawn by us, until PDFKit has drawn them itself
+        [pdfView layoutDocumentView];
+        id picture = [self pictureOfVisiblePages];
+        if (picture)
+            [[[self reloadOverlayView] layer] setContents:picture];
+        [self scheduleHideReloadOverlay];
+    }
+}
+
+#pragma mark Reload overlay
+
+// Draws the pages visible in pdfView ourselves. Capturing the view does not work:
+// PDFKit draws pages into tiled layers that -cacheDisplayInRect: does not see.
+- (nullable id)pictureOfVisiblePages {
+    NSRect bounds = [pdfView bounds];
+    CGFloat scale = [[pdfView window] backingScaleFactor] ?: 2.0;
+    size_t width = (size_t)ceil(NSWidth(bounds) * scale), height = (size_t)ceil(NSHeight(bounds) * scale);
+    if (width == 0 || height == 0)
+        return nil;
+    CGColorSpaceRef colorSpace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    CGContextRef context = CGBitmapContextCreate(NULL, width, height, 8, 0, colorSpace, (CGBitmapInfo)kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Host);
+    CGColorSpaceRelease(colorSpace);
+    if (context == NULL)
+        return nil;
+    CGContextScaleCTM(context, scale, scale);
+    // bitmap contexts are unflipped; map pdfView coordinates onto them
+    if ([pdfView isFlipped]) {
+        CGContextTranslateCTM(context, 0.0, NSHeight(bounds));
+        CGContextScaleCTM(context, 1.0, -1.0);
+    }
+    CGContextTranslateCTM(context, -NSMinX(bounds), -NSMinY(bounds));
+    
+    NSGraphicsContext *nsContext = [NSGraphicsContext graphicsContextWithCGContext:context flipped:[pdfView isFlipped]];
+    [NSGraphicsContext saveGraphicsState];
+    [NSGraphicsContext setCurrentContext:nsContext];
+    
+    // only the pages are drawn: pdfView's own background shows through around them
+    
+    PDFDisplayBox box = [pdfView displayBox];
+    for (PDFPage *page in [pdfView visiblePages]) {
+        NSRect pageRect = [pdfView convertRect:[page boundsForBox:box] fromPage:page];
+        if (NSIntersectsRect(pageRect, bounds) == NO)
+            continue;
+        NSRect boxRect = [page boundsForBox:box];
+        BOOL rotated = ([page rotation] % 180) != 0;
+        CGFloat pageWidth = rotated ? NSHeight(boxRect) : NSWidth(boxRect);
+        if (pageWidth <= 0.0)
+            continue;
+        [[NSColor whiteColor] setFill];
+        NSRectFill(pageRect);
+        CGContextSaveGState(context);
+        CGContextClipToRect(context, NSRectToCGRect(pageRect));
+        // -drawWithBox:toContext: draws in unflipped page space at the box's size, rotation applied
+        if ([pdfView isFlipped]) {
+            CGContextTranslateCTM(context, NSMinX(pageRect), NSMaxY(pageRect));
+            CGContextScaleCTM(context, 1.0, -1.0);
+        } else {
+            CGContextTranslateCTM(context, NSMinX(pageRect), NSMinY(pageRect));
+        }
+        CGFloat pageScale = NSWidth(pageRect) / pageWidth;
+        CGContextScaleCTM(context, pageScale, pageScale);
+        [page drawWithBox:box toContext:context];
+        CGContextRestoreGState(context);
+    }
+    
+    [NSGraphicsContext restoreGraphicsState];
+    CGImageRef image = CGBitmapContextCreateImage(context);
+    CGContextRelease(context);
+    return CFBridgingRelease(image);
+}
+
+- (void)showReloadOverlay {
+    // a reload while the previous one is still covered: keep the current picture up
+    if ([self reloadOverlayView]) {
+        [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(hideReloadOverlay:) object:[self reloadOverlayView]];
+        [[[self reloadOverlayView] layer] removeAllAnimations];
+        [[self reloadOverlayView] setAlphaValue:1.0];
+        return;
+    }
+    NSView *container = [pdfView superview];
+    if (container == nil || [pdfView window] == nil || [pdfView isHiddenOrHasHiddenAncestor] || NSIsEmptyRect([pdfView bounds]))
+        return;
+    id picture = [self pictureOfVisiblePages];
+    if (picture == nil)
+        return;
+    NSView *overlay = [[SKReloadOverlayView alloc] initWithFrame:[pdfView frame]];
+    [overlay setWantsLayer:YES];
+    [[overlay layer] setContents:picture];
+    [[overlay layer] setContentsGravity:kCAGravityResize];
+    [overlay setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+    [container addSubview:overlay positioned:NSWindowAbove relativeTo:pdfView];
+    [self setReloadOverlayView:overlay];
+}
+
+- (void)scheduleHideReloadOverlay {
+    NSUserDefaults *sud = [NSUserDefaults standardUserDefaults];
+    NSTimeInterval delay = [sud objectForKey:SKReloadOverlayDurationKey] ? [sud doubleForKey:SKReloadOverlayDurationKey] : 0.5;
+    [self performSelector:@selector(hideReloadOverlay:) withObject:[self reloadOverlayView] afterDelay:fmax(delay, 0.0)];
+}
+
+- (void)hideReloadOverlay:(NSView *)overlay {
+    if (overlay == nil || overlay != [self reloadOverlayView])
+        return;
+    [self setReloadOverlayView:nil];
+    NSUserDefaults *sud = [NSUserDefaults standardUserDefaults];
+    NSTimeInterval fade = [sud objectForKey:SKReloadOverlayFadeKey] ? [sud doubleForKey:SKReloadOverlayFadeKey] : 0.08;
+    if (fade <= 0.0) {
+        [overlay removeFromSuperview];
+        return;
+    }
+    [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
+        [context setDuration:fade];
+        [[overlay animator] setAlphaValue:0.0];
+    } completionHandler:^{
+        [overlay removeFromSuperview];
+    }];
 }
 
 #pragma mark Accessors
