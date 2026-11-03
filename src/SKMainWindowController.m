@@ -221,9 +221,12 @@ static NSArray *mergedSnapshotSetups(NSArray *setups1, NSArray *setups2);
 
 // Covers the PDF view with a picture of itself while a reverted document is swapped in.
 @property (nonatomic, nullable, strong) NSView *reloadOverlayView;
+// Removes the overlay as soon as the user scrolls, zooms, clicks or types, so they never act on a still picture.
+@property (nonatomic, nullable, strong) id reloadOverlayEventMonitor;
 - (nullable id)pictureOfVisiblePages;
 - (void)showReloadOverlay;
 - (void)scheduleHideReloadOverlay;
+- (void)removeReloadOverlay;
 
 @end
 
@@ -312,6 +315,7 @@ static NSString *SKReloadOverlayFadeKey = @"SKReloadOverlayFade";
         [[NSProcessInfo processInfo] endActivity:activity];
         activity = nil;
     }
+    [self removeReloadOverlay];
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [self stopObservingNotes:[self notes]];
     [self clearWidgets];
@@ -1421,9 +1425,35 @@ static NSString *SKReloadOverlayFadeKey = @"SKReloadOverlayFade";
     return CFBridgingRelease(image);
 }
 
+- (NSClipView *)reloadOverlayClipView {
+    return [[pdfView embeddedScrollView] contentView];
+}
+
+- (void)stopTrackingReloadOverlayBounds {
+    [[NSNotificationCenter defaultCenter] removeObserver:self name:NSViewBoundsDidChangeNotification object:[self reloadOverlayClipView]];
+}
+
+// The view moved without the user, e.g. a forward search (displayline) right after the reload:
+// redraw the picture where the view now is and give PDFKit time to draw there too.
+- (void)handleReloadOverlayBoundsChanged:(NSNotification *)notification {
+    NSView *overlay = [self reloadOverlayView];
+    if (overlay == nil)
+        return;
+    id picture = [self pictureOfVisiblePages];
+    if (picture == nil) {
+        [self removeReloadOverlay];
+        return;
+    }
+    [[overlay layer] setContents:picture];
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(hideReloadOverlay:) object:overlay];
+    [self scheduleHideReloadOverlay];
+}
+
 - (void)showReloadOverlay {
     // a reload while the previous one is still covered: keep the current picture up
     if ([self reloadOverlayView]) {
+        // the view jumps around while the document is swapped; don't redraw for that
+        [self stopTrackingReloadOverlayBounds];
         [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(hideReloadOverlay:) object:[self reloadOverlayView]];
         [[[self reloadOverlayView] layer] removeAllAnimations];
         [[self reloadOverlayView] setAlphaValue:1.0];
@@ -1442,17 +1472,55 @@ static NSString *SKReloadOverlayFadeKey = @"SKReloadOverlayFade";
     [overlay setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
     [container addSubview:overlay positioned:NSWindowAbove relativeTo:pdfView];
     [self setReloadOverlayView:overlay];
+
+    __weak SKMainWindowController *weakSelf = self;
+    NSEventMask mask = NSEventMaskScrollWheel | NSEventMaskMagnify | NSEventMaskSmartMagnify | NSEventMaskRotate | NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown | NSEventMaskOtherMouseDown | NSEventMaskKeyDown;
+    [self setReloadOverlayEventMonitor:[NSEvent addLocalMonitorForEventsMatchingMask:mask handler:^NSEvent *(NSEvent *event) {
+        SKMainWindowController *strongSelf = weakSelf;
+        if (strongSelf && [event window] == [strongSelf window])
+            [strongSelf removeReloadOverlay];
+        return event;
+    }]];
 }
 
 - (void)scheduleHideReloadOverlay {
+    NSView *overlay = [self reloadOverlayView];
+    if (overlay == nil)
+        return;
+    NSClipView *clipView = [self reloadOverlayClipView];
+    if (clipView) {
+        [self stopTrackingReloadOverlayBounds];
+        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handleReloadOverlayBoundsChanged:)
+                                                     name:NSViewBoundsDidChangeNotification object:clipView];
+    }
     NSUserDefaults *sud = [NSUserDefaults standardUserDefaults];
     NSTimeInterval delay = [sud objectForKey:SKReloadOverlayDurationKey] ? [sud doubleForKey:SKReloadOverlayDurationKey] : 0.5;
-    [self performSelector:@selector(hideReloadOverlay:) withObject:[self reloadOverlayView] afterDelay:fmax(delay, 0.0)];
+    [self performSelector:@selector(hideReloadOverlay:) withObject:overlay afterDelay:fmax(delay, 0.0)];
+}
+
+- (void)stopReloadOverlayTracking {
+    [self stopTrackingReloadOverlayBounds];
+    if ([self reloadOverlayEventMonitor]) {
+        [NSEvent removeMonitor:[self reloadOverlayEventMonitor]];
+        [self setReloadOverlayEventMonitor:nil];
+    }
+}
+
+// Takes the overlay away at once, without the fade: the user is moving the view under it.
+- (void)removeReloadOverlay {
+    NSView *overlay = [self reloadOverlayView];
+    [self stopReloadOverlayTracking];
+    if (overlay == nil)
+        return;
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(hideReloadOverlay:) object:overlay];
+    [self setReloadOverlayView:nil];
+    [overlay removeFromSuperview];
 }
 
 - (void)hideReloadOverlay:(NSView *)overlay {
     if (overlay == nil || overlay != [self reloadOverlayView])
         return;
+    [self stopReloadOverlayTracking];
     [self setReloadOverlayView:nil];
     NSUserDefaults *sud = [NSUserDefaults standardUserDefaults];
     NSTimeInterval fade = [sud objectForKey:SKReloadOverlayFadeKey] ? [sud doubleForKey:SKReloadOverlayFadeKey] : 0.08;
