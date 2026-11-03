@@ -14,3 +14,7 @@ releases instead of the upstream feed.
 
 - `src/`: Skim's sources and Xcode project (`src/Skim.xcodeproj`), as upstream has them.
 - `Scripts/release.sh`: the release build.
+
+## License
+
+Skim's original BSD license, unchanged: see [LICENSE](LICENSE) and [upstream](https://sourceforge.net/p/skim-app/code/HEAD/tree/trunk/LICENSE).
