@@ -4,7 +4,6 @@
 disk no longer flashes.** Built for live LaTeX previews, where the PDF is rebuilt every time you save.
 
 ```
-brew tap amichaelyu/tap
 brew trust amichaelyu/tap   # Homebrew won't load third-party tap formulae until trusted
 brew install --cask amichaelyu/tap/skim
 ```
